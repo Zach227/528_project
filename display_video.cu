@@ -31,10 +31,10 @@ static void hot_plate(real_t *out, real_t *in, real_t *mask, int width, int heig
     // Variables for the convolution
     int conv_step = width * sizeof(RGB_TYPE);
     NppiSize oSrcSize = {width, height};
-    NppiPoint oSrcOffset = {1, 1};
-    NppiSize convROI = {width - 2, height - 2};
+    NppiPoint oSrcOffset = {0,0};
+    NppiSize convROI = {width , height };
     NppiSize oKernelSize = {9, 3};
-    NppiPoint oAnchor = {1, 1};
+    NppiPoint oAnchor = {0,0};
     NppiBorderType eborderType = NPP_BORDER_REPLICATE;
 
     NppStatus convStatus = nppiFilterBorder_32f_C1R(
@@ -81,10 +81,16 @@ int main(int argc, char *argv[])
     width = width * channels;
 
     // Define the kernel
-    float boxBlur[BOX_BLUR_SIZE] = {BOX_BLUR_COEFF, 0, 0, BOX_BLUR_COEFF, 0, 0, BOX_BLUR_COEFF, 0, 0,
-                                    BOX_BLUR_COEFF, 0, 0, BOX_BLUR_COEFF, 0, 0, BOX_BLUR_COEFF, 0, 0,
-                                    BOX_BLUR_COEFF, 0, 0, BOX_BLUR_COEFF, 0, 0, BOX_BLUR_COEFF, 0, 0};
-
+    float boxBlur[BOX_BLUR_SIZE] = 
+    // {BOX_BLUR_COEFF, 0, 0, BOX_BLUR_COEFF, 0, 0, BOX_BLUR_COEFF, 0, 0,
+    //                                 BOX_BLUR_COEFF, 0, 0, BOX_BLUR_COEFF, 0, 0, BOX_BLUR_COEFF, 0, 0,
+    //                                 BOX_BLUR_COEFF, 0, 0, BOX_BLUR_COEFF, 0, 0, BOX_BLUR_COEFF, 0, 0};
+{
+    0.393f, 0, 0, 0.769f,0, 0,  0.189f,0, 0,  // Coefficients for Red
+    0.349f, 0, 0, 0.686f,0, 0,  0.168f,0, 0,  // Coefficients for Green
+    0.272f, 0, 0, 0.534f, 0, 0, 0.131f, 0, 0   // Coefficients for Blue
+};
+// };
     // Allocate GPU memory
     real_t *devInputData;
     real_t *devOutputData;
@@ -151,11 +157,11 @@ int main(int argc, char *argv[])
 
         Mat reconstructedA(frame.rows, frame.cols, CV_8UC3, oneDFrameSafe);
 
-        // imshow("Frame", reconstructedA);
+        imshow("Frame", reconstructedA);
 
-        // char c = (char)waitKey(25);
-        // if (c == 27)
-        //     break;
+        char c = (char)waitKey(25);
+        if (c == 27)
+            break;
 
         printf("Processed frame %d\n", frame_num);
 
