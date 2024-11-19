@@ -13,7 +13,7 @@ typedef double real_t;
 #else
 #define EPSILON 0.00005f
 #define FABS fabsf
-typedef Npp8u real_t;
+typedef float real_t;
 #endif
 
 #define VIDEO_FILE "test_video.mp4"
@@ -43,7 +43,7 @@ static void genericOneChannelFilter(Npp8u *out, Npp8u *in,  Npp32s *mask, int wi
                               conv_step, // nSrcStep
                               oSrcSize, // oSrcSize
                               oSrcOffset, // oSrcOffset
-                               + width + 1 , // *pDst
+                              w + width + 1 , // *pDst
                               conv_step, // nDstStep
                               convROI, // oSizeROI
                               mask, // *pKernel
@@ -276,9 +276,9 @@ int main(int argc, char *argv[]) {
   };
 
   // Allocate GPU memory
-  real_t *devInputData;
-  real_t *devOutputData;
-  real_t *devMask;
+  Npp8u *devInputData;
+  Npp8u *devOutputData;
+  Npp32s *devMask;
 
   htkTime_start(GPU, "Allocating GPU memory.");
   cudaMalloc((void **)&devInputData, width * height * sizeof(Npp8u));
@@ -290,53 +290,19 @@ int main(int argc, char *argv[]) {
   htkTime_start(IO, "Copying memory to the GPU.");
   cudaMemcpy(devInputData, oneDFrame, width * height * sizeof(Npp8u), cudaMemcpyHostToDevice);
   cudaMemcpy(devOutputData, oneDFrame, width * height * sizeof(Npp8u), cudaMemcpyHostToDevice);
-cudaMemcpy(devMask, kernelRidge, 9 * 3 * sizeof(Npp32s), cudaMemcpyHostToDevice);
+  cudaMemcpy(devMask, kernelRidge, 9 * 3 * sizeof(Npp32s), cudaMemcpyHostToDevice);
 
     genericOneChannelFilter(devOutputData, devInputData, devMask, width, height, EPSILON, 3);
   htkTime_stop(IO, "Copying memory to the GPU.");
 
   // Call convolution function
   htkTime_start(Compute, "Doing the computation");
-  // boxBlur(devOutputData, devInputData, devMask, width, height, EPSILON);
-  // superBoxBlur(devOutputData, devInputData, devMask, width, height, EPSILON);
-//   genericKernelFilter(devOutputData, devInputData, devMask, width, height, EPSILON, 16);
-//   int width3Channel = width;
-//   Npp32s *devMask3Channel = new Npp32s[3 * 3];
-//   Npp8u *devInputData3Channel;
-//   Npp8u *devOutputData3Channel;
-//   Npp8u * tempInput = new Npp8u[width * height];
-  // for ( it = frame.begin<cv::Vec3b>(), end = frame.end<cv::Vec3b>(); it != end; ++it ) {
-
-  //     //get current bgr pixels:
-  //     uchar &r = (*it)[2];
-  //     uchar &g = (*it)[1];
-  //     uchar &b = (*it)[0];
-
-  //     //Store them into array, as a cv::Scalar:
-  //     tempInput[i] = b;
-  //     tempInput[i + 1] = g;
-  //     tempInput[i + 2] = r;
-  //     i +=3;
-
-  // }
-
-  // cudaMemcpy(D, kernelRidge, 3 * 3 * sizeof(Npp32s), cudaMemcpyHostToDevice);
-
-//   cudaMalloc((void **)&devInputData3Channel, width * height * sizeof(Npp8u));
-//   cudaMalloc((void **)&devOutputData3Channel, width * height * sizeof(Npp8u));
-
-//   cvtColor(frame, frame, COLOR_BGR2RGB);
-//   cudaMemcpy(devMask3Channel, kernelRidge, 3 * 3 * sizeof(Npp32s), cudaMemcpyHostToDevice);
-//   printf("IS continue%d\n", frame.isContinuous());
-//   cudaMemcpy(devInputData3Channel, frame.ptr<Npp8u>(), width * height * sizeof(Npp8u), cudaMemcpyHostToDevice);
-//   cudaMemcpy(devOutputData3Channel, frame.ptr<Npp8u>(), width * height * sizeof(Npp8u), cudaMemcpyHostToDevice);
-//   genericMultiChannelFilter(devOutputData3Channel, devInputData3Channel, devMask3Channel, width3Channel, height, EPSILON, 3);
   htkTime_stop(Compute, "Doing the computation");
   htkLog(TRACE, "Solution iterations: ", iterations);
 
   // Copy the GPU memory back to the CPU
-//   float *hostOutputData = new float[matElements];
-//   Npp8u *hostOutputData3Channel = new Npp8u[matElements];
+  Npp8u* hostOutputData = new Npp8u[matElements];
+  // Npp8u *hostOutputData3Channel = new Npp8u[matElements];
   htkTime_start(IO, "Copying memory back to the CPU.");
   cudaMemcpy(hostOutputData, devOutputData, width * height * sizeof(Npp8u), cudaMemcpyDeviceToHost);
 //   cudaMemcpy(hostOutputData3Channel, devOutputData3Channel, width * height * sizeof(Npp8u), cudaMemcpyDeviceToHost);
