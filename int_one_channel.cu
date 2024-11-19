@@ -1,3 +1,4 @@
+  // Variables for the convolution
 #include "htk.h"
 #include <nppi.h>
 
@@ -22,6 +23,40 @@ typedef float real_t;
 int iterations;
 
 #define RGB_TYPE float
+
+static void genericOneChannelFilter(Npp8u *out, Npp8u *in,  Npp32s *mask, int width, int height, real_t epsilon, int maskWidth) {
+    Npp8u *u = in;
+    Npp8u *w = out;
+  // width = width * 3;
+    printf("Width: %d\n", width);
+  // Variables for the convolution
+    int conv_step = width * sizeof(Npp8u);
+    NppiSize oSrcSize = {width, height};
+  NppiPoint oSrcOffset = {0, 0};
+  NppiSize convROI = {width , height};
+  NppiSize oKernelSize = {maskWidth * 3, maskWidth};
+  NppiPoint oAnchor = {0, 0};
+  NppiBorderType eborderType = NPP_BORDER_REPLICATE;
+
+  NppStatus convStatus = nppiFilterBorder_8u_C1R(
+                              u + width + 1, // *pSrc
+                              conv_step, // nSrcStep
+                              oSrcSize, // oSrcSize
+                              oSrcOffset, // oSrcOffset
+                              w + width + 1 , // *pDst
+                              conv_step, // nDstStep
+                              convROI, // oSizeROI
+                              mask, // *pKernel
+                              oKernelSize, // oKernelSize
+                              oAnchor, // oAnchor
+                              1, // nDivisor
+                              eborderType // eBorderType
+                              );
+
+  printf("STATUS %d\n", convStatus);
+
+}
+
 
 static void genericMultiChannelFilter(Npp8u *out, Npp8u *in,  Npp32s *mask, int width, int height, real_t epsilon, int maskWidth) {
   Npp8u *u = in;
@@ -105,7 +140,7 @@ static void genericKernelFilter(real_t *out, real_t *in, real_t *mask, int width
                               conv_step, // nSrcStep
                               oSrcSize, // oSrcSize
                               oSrcOffset, // oSrcOffset
-                              w + width + 1, // *pDst
+                              u + width + 1, // *pDst
                               conv_step, // nDstStep
                               convROI, // oSizeROI
                               mask, // *pKernel
@@ -169,9 +204,6 @@ int main(int argc, char *argv[]) {
       printf("Error: Unable to open the video file.");
       return -1;
   }  Mat frame;
-
-
-
   capture >> frame;
   if (frame.empty()) {
       printf("Error: Unable to open the frame file.");
@@ -183,7 +215,6 @@ int main(int argc, char *argv[]) {
   int width = frame.cols;
   int height = frame.rows;
   printf("Loaded image with dimensions %d x %d x %d\n", width, height, channels);
-  // width = width * channels;
   width = width * 3;
   #define BOX_BLUR_ULTRA_SIZE 16
   float boxBlurUltraMask[ BOX_BLUR_ULTRA_SIZE * BOX_BLUR_ULTRA_SIZE * 3];
@@ -192,7 +223,7 @@ int main(int argc, char *argv[]) {
   // Get a Mat (this is the matrix that will hold a single frame)
   int matElements = width * height;
   // unsigned char* oneDFrame = new unsigned char[matElements];
-  float *oneDFrame = new float[matElements];
+  Npp8u *oneDFrame = new Npp8u[matElements];
   printf("Total Elements: %d\n", matElements);
   MatIterator_<cv::Vec3b> it, end;
   int i = 0;
@@ -238,98 +269,57 @@ int main(int argc, char *argv[]) {
                                     };
 
 //A bunch of random kernels Using One channel
-   float kernelRidge [9 * 3] = {
+   Npp32s kernelRidge  [9 * 3] = {
     0, 0, 0, -1, 0, 0, 0, 0, 0,
     -1, 0, 0, 4, 0, 0, -1, 0, 0, 
     0, 0, 0, -1, 0, 0, 0, 0, 0
   };
 
   // Allocate GPU memory
-  real_t *devInputData;
-  real_t *devOutputData;
-  real_t *devMask;
+  Npp8u *devInputData;
+  Npp8u *devOutputData;
+  Npp32s *devMask;
 
   htkTime_start(GPU, "Allocating GPU memory.");
-  cudaMalloc((void **)&devInputData, width * height * sizeof(real_t));
-  cudaMalloc((void **)&devOutputData, width * height * sizeof(real_t));
-  cudaMalloc((void **)&devMask,  9 * 3 * sizeof(real_t));
+  cudaMalloc((void **)&devInputData, width * height * sizeof(Npp8u));
+  cudaMalloc((void **)&devOutputData, width * height * sizeof(Npp8u));
+  cudaMalloc((void **)&devMask,  9 * 3 * sizeof(Npp32s));
   htkTime_stop(GPU, "Allocating GPU memory.");
   
   // Copy memory to the GPU
   htkTime_start(IO, "Copying memory to the GPU.");
-  cudaMemcpy(devInputData, oneDFrame, width * height * sizeof(real_t), cudaMemcpyHostToDevice);
-  cudaMemcpy(devOutputData, oneDFrame, width * height * sizeof(real_t), cudaMemcpyHostToDevice);
+  cudaMemcpy(devInputData, oneDFrame, width * height * sizeof(Npp8u), cudaMemcpyHostToDevice);
+  cudaMemcpy(devOutputData, oneDFrame, width * height * sizeof(Npp8u), cudaMemcpyHostToDevice);
+  cudaMemcpy(devMask, kernelRidge, 9 * 3 * sizeof(Npp32s), cudaMemcpyHostToDevice);
 
-  // cudaMemcpy(devMask, boxBlurMask, 9 * 3 * sizeof(real_t), cudaMemcpyHostToDevice);
-  cudaMemcpy(devMask, kernelRidge, 9 * 3 * sizeof(real_t), cudaMemcpyHostToDevice);
+    genericOneChannelFilter(devOutputData, devInputData, devMask, width, height, EPSILON, 3);
   htkTime_stop(IO, "Copying memory to the GPU.");
 
   // Call convolution function
   htkTime_start(Compute, "Doing the computation");
-  // boxBlur(devOutputData, devInputData, devMask, width, height, EPSILON);
-  // superBoxBlur(devOutputData, devInputData, devMask, width, height, EPSILON);
-  genericKernelFilter(devOutputData, devInputData, devMask, width, height, EPSILON, 3);
-  // int width3Channel = width;
-  // Npp32s *devMask3Channel = new Npp32s[3 * 3];
-  // Npp8u *devInputData3Channel;
-  // Npp8u *devOutputData3Channel;
-  // real_t * tempInput = new real_t[width * height];
-  // for ( it = frame.begin<cv::Vec3b>(), end = frame.end<cv::Vec3b>(); it != end; ++it ) {
-
-  //     //get current bgr pixels:
-  //     uchar &r = (*it)[2];
-  //     uchar &g = (*it)[1];
-  //     uchar &b = (*it)[0];
-
-  //     //Store them into array, as a cv::Scalar:
-  //     tempInput[i] = b;
-  //     tempInput[i + 1] = g;
-  //     tempInput[i + 2] = r;
-  //     i +=3;
-
-  // }
-
-  // cudaMemcpy(D, kernelRidge, 3 * 3 * sizeof(Npp32s), cudaMemcpyHostToDevice);
-
-
-  //MEMMORY ALLOC FOR Npp8u !!!
-
-  // cudaMalloc((void **)&devInputData3Channel, width * height * sizeof(Npp8u));
-  // cudaMalloc((void **)&devOutputData3Channel, width * height * sizeof(Npp8u));
-
-  // // cvtColor(frame, frame, COLOR_BGR2RGB); --> NO CLUE IF THIS IS NEEDED
-  // cudaMemcpy(devMask3Channel, kernelRidge, 3 * 3 * sizeof(Npp32s), cudaMemcpyHostToDevice);
-  // printf("IS continue%d\n", frame.isContinuous());
-  // cudaMemcpy(devInputData3Channel, frame.ptr<Npp8u>(), width * height * sizeof(Npp8u), cudaMemcpyHostToDevice);
-  // cudaMemcpy(devOutputData3Channel, frame.ptr<Npp8u>(), width * height * sizeof(Npp8u), cudaMemcpyHostToDevice);
-  
-  
-  //THIS DOESNT WORK
-  // genericMultiChannelFilter(devOutputData3Channel, devInputData3Channel, devMask3Channel, width3Channel, height, EPSILON, 3);
-  // cudaMemcpy(hostOutputData3Channel, devOutputData3Channel, width * height * sizeof(Npp8u), cudaMemcpyDeviceToHost);
-  // Npp8u *hostOutputData3Channel = new Npp8u[matElements];
-  
   htkTime_stop(Compute, "Doing the computation");
   htkLog(TRACE, "Solution iterations: ", iterations);
 
   // Copy the GPU memory back to the CPU
-  float *hostOutputData = new float[matElements];
+  Npp8u* hostOutputData = new Npp8u[matElements];
+  // Npp8u *hostOutputData3Channel = new Npp8u[matElements];
   htkTime_start(IO, "Copying memory back to the CPU.");
-  cudaMemcpy(hostOutputData, devOutputData, width * height * sizeof(real_t), cudaMemcpyDeviceToHost);
+  cudaMemcpy(hostOutputData, devOutputData, width * height * sizeof(Npp8u), cudaMemcpyDeviceToHost);
+//   cudaMemcpy(hostOutputData3Channel, devOutputData3Channel, width * height * sizeof(Npp8u), cudaMemcpyDeviceToHost);
   
   htkTime_stop(IO, "Copying memory back to the CPU.");
-  unsigned char* oneDFrameSafe = new unsigned char[matElements];
+//   unsigned char* oneDFrameSafe = new unsigned char[matElements];
 
   // Convert back to unsigned char before reconstructing the image
-  for(int i = 0; i < width * height; i++){
-      unsigned char temp = (unsigned char)hostOutputData[i];
-      oneDFrameSafe[i] = temp;
-  }
+  // for(int i = 0; i < width * height; i++){
+  //     unsigned char temp = (unsigned char)hostOutputData[i];
+  //     oneDFrameSafe[i] = temp;
+  // }
 
-  Mat reconstructedA(frame.rows, frame.cols, CV_8UC3, oneDFrameSafe);
+  Mat reconstructedA(frame.rows, frame.cols, CV_8UC3, hostOutputData);
 
   // Save the image
-  imwrite("output_image_ridge_detection_3.png", reconstructedA);
+  imwrite("output_image_ridge_detection_3_channel.png", reconstructedA);
 
   printf("Image saved as output_image.png");
 
