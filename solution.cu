@@ -2,6 +2,7 @@
 #include "htk.h"
 #include <nppi.h>
 #include <chrono>
+#include "filter.h"
 
 #include "opencv2/opencv.hpp"
 using namespace cv;
@@ -16,10 +17,6 @@ typedef double real_t;
 #define FABS fabsf
 typedef float real_t;
 #endif
-
-#define VIDEO_FILE "video_2.mp4"
-#define BOX_BLUR_SIZE 3 * 3 * 3
-#define BOX_BLUR_COEFF float(1.0 / 9.0)
 
 int iterations;
 
@@ -95,63 +92,8 @@ __global__ void filterGreyscale(int height, int width, Npp8u *input, Npp8u *outp
         output[idx]     = Npp8u(min(255, int(393 * red + 769 * green + 189 * blue)/1000)); // Red channel
         output[idx + 1] = Npp8u(min(255, int(349 * red + 686 * green + 168 * blue)/1000)); // Green channel
         output[idx + 2] = Npp8u(min(255, int(272 * red + 534 * green + 131 * blue)/1000)); // Blue channel
-        // output[idx] = red;
-        // output[idx + 1] = green;
-        // output[idx + 2] = blue;
     }
 };
-
-   Npp32s ridgeFilter  [3 * 3] = {
-    0, -1, 0,
-    -1, 4, -1, 
-    0, -1, 0  
-    };
-  Npp32s sepiaFilter [3*3] = {
-    101, 198, 48,  // 0.393 * 256, 0.769 * 256, 0.189 * 256
-    89, 176, 43,   // 0.349 * 256, 0.686 * 256, 0.168 * 256
-    69, 137, 33    // 0.272 * 256, 0.534 * 256, 0.131 * 256
-};
-
-Npp32s sobelFilter [9] = {
-    1, 0, -1,
-    2, 0, -2,
-    1, 0, -1
-};
-
-Npp32s sharpenFilter [9] = {
-  0, -1, 0,
-  -1, 5, -1,
-  0, -1, 0
-};
-
-Npp32s embossFilter [9] = {
-  -2, -1, 0,
-  -1, 1, 1,
-  0, 1, 2
-};
-
-Npp32s gaussFilter [25] = {
-  1, 4, 7, 4, 1,
-  4, 16, 26, 16, 4,
-  7, 26, 41, 26, 7,
-  4, 16, 26, 16, 4,
-  1, 4, 7, 4, 1
-
-
-};
-
-Npp32s blurFilter [ 9 ] = {
-    1, 1, 1,
-    1, 1, 1,
-    1, 1, 1
-};
-
-Npp32s ridgeFilter2 [ 9 ] = {
-    -1, -1, -1,
-    -1, 8, -1,
-    -1, -1, -1
-};
-Npp32s superblurFilter [ 81] = {};
 
 int main(int argc, char *argv[]) {
 
@@ -204,6 +146,7 @@ int main(int argc, char *argv[]) {
     // Get a Mat (this is the matrix that will hold a single frame)
     // unsigned char* oneDFrame = new unsigned char[matElements];
     Npp8u *oneDFrame = new Npp8u[matElements];
+    // unsigned char *oneDFrame = new unsigned char[matElements];
     printf("Total Elements: %d\n", matElements);
 
     if (filter_name == "greyscale") {
@@ -234,7 +177,7 @@ int main(int argc, char *argv[]) {
     Npp8u *devOutputData;
     Npp32s *devMask;
     Npp32s *blurMask;
-    Npp32s *sepiaMask;
+    Npp32s *greyscaleMask;
     Npp32s *sobelMask;
     Npp32s *sharpenMask;
     Npp32s *embossMask;
@@ -251,7 +194,7 @@ int main(int argc, char *argv[]) {
     cudaMalloc((void **)&ridgeMask2,  3 * 3 * sizeof(Npp32s));
 
     cudaMalloc((void **)&sobelMask, 3 * 3 * sizeof(Npp32s));
-    cudaMalloc((void **)&sepiaMask, 3 * 3 * sizeof(Npp32s));
+    cudaMalloc((void **)&greyscaleMask, 3 * 3 * sizeof(Npp32s));
     cudaMalloc((void **)&blurMask, 3 * 3 * sizeof(Npp32s));
     cudaMalloc((void **)&sharpenMask, 3 * 3 * sizeof(Npp32s));
     cudaMalloc((void **)&embossMask, 3 * 3 * sizeof(Npp32s));
@@ -262,7 +205,7 @@ int main(int argc, char *argv[]) {
 
 
     // cudaMemcpy(devMask, kernelRidge, 3 * 3 * sizeof(Npp32s), cudaMemcpyHostToDevice);
-    cudaMemcpy(sepiaMask, sepiaFilter, 3 * 3 * sizeof(Npp32s), cudaMemcpyHostToDevice);
+    cudaMemcpy(greyscaleMask, sepiaFilter, 3 * 3 * sizeof(Npp32s), cudaMemcpyHostToDevice);
     cudaMemcpy(sobelMask, sobelFilter, 3 * 3 * sizeof(Npp32s), cudaMemcpyHostToDevice);
     cudaMemcpy(ridgeMask, ridgeFilter, 3 * 3 * sizeof(Npp32s), cudaMemcpyHostToDevice);
     cudaMemcpy(ridgeMask2, ridgeFilter2, 3 * 3 * sizeof(Npp32s), cudaMemcpyHostToDevice);
@@ -272,49 +215,81 @@ int main(int argc, char *argv[]) {
     cudaMemcpy(gaussMask, gaussFilter, 5 * 5 * sizeof(Npp32s), cudaMemcpyHostToDevice);
     cudaMemcpy(blurMask, blurFilter, 3 * 3* sizeof(Npp32s), cudaMemcpyHostToDevice);
     cudaMemcpy(superblurMask, superblurFilter, 9 * 9 * sizeof(Npp32s), cudaMemcpyHostToDevice);
-    cudaMemcpy(devOutputData, oneDFrame, width * height * sizeof(Npp8u), cudaMemcpyHostToDevice);
 
+    int max_frame_time = 0;
+    int min_frame_time = 1000000;
+    int total_frame_time = 0;
 
+    int max_compute_time = 0;
+    int min_compute_time = 1000000;
+    int total_compute_time = 0;
+
+    int max_flatten_time = 0;
+    int min_flatten_time = 1000000;
+    int total_flatten_time = 0;
 
     int frame_num = 0;
     while (1) {
         // htkTime_start(IO, "Processing Total Frame");
         auto start_time = std::chrono::high_resolution_clock::now();
-        htkTime_start(IO, "Flattening Frame\n");
+        // htkTime_start(IO, "Flattening Frame\n");
         MatIterator_<cv::Vec3b> it, end;
-        int i = 0;
 
+        auto flatten_start = std::chrono::high_resolution_clock::now();
         // Flatten the frame into a 1D array
-        for ( it = frame.begin<cv::Vec3b>(), end = frame.end<cv::Vec3b>(); it != end; ++it ) {
+        // int i = 0;
+        // for ( it = frame.begin<cv::Vec3b>(), end = frame.end<cv::Vec3b>(); it != end; ++it ) {
 
-            //get current bgr pixels:
-            uchar &r = (*it)[2];
-            uchar &g = (*it)[1];
-            uchar &b = (*it)[0];
+        //     //get current bgr pixels:
+        //     uchar &r = (*it)[2];
+        //     uchar &g = (*it)[1];
+        //     uchar &b = (*it)[0];
 
-            //Store them into array, as a cv::Scalar:
-            oneDFrame[i] = b;
-            oneDFrame[i + 1] = g;
-            oneDFrame[i + 2] = r;
-            i +=3;
+        //     //Store them into array, as a cv::Scalar:
+        //     oneDFrame[i] = b;
+        //     oneDFrame[i + 1] = g;
+        //     oneDFrame[i + 2] = r;
+        //     i +=3;
 
+        // }
+        int idx = 0;
+        for (int i = 0; i < frame.rows; ++i) {
+            for (int j = 0; j < frame.cols; ++j) {
+                Vec3b pixel = frame.at<Vec3b>(i, j);
+                oneDFrame[idx] = pixel[0];      // Blue
+                oneDFrame[idx + 1] = pixel[1];  // Green
+                oneDFrame[idx + 2] = pixel[2];  // Red
+                idx += 3;
+            }
         }
 
-        htkTime_stop(IO, "Flattening Frame\n");
+        auto flatten_end = std::chrono::high_resolution_clock::now();
+        int flatten_duration = std::chrono::duration_cast<std::chrono::microseconds>(flatten_end - flatten_start).count();
+        if (flatten_duration > max_flatten_time) {
+            max_flatten_time = flatten_duration;
+        }
+        if (flatten_duration < min_flatten_time) {
+            min_flatten_time = flatten_duration;
+        }
+        total_flatten_time += flatten_duration;
 
-        htkTime_start(Copy, "Copying input memory to the GPU.");
+        // printf("flatten_duration: %d us\n", flatten_duration);
+
+        // htkTime_stop(IO, "Flattening Frame\n");
+
+        // htkTime_start(Copy, "Copying input memory to the GPU.");
         cudaMemcpy(devInputData, oneDFrame, width * height * sizeof(Npp8u), cudaMemcpyHostToDevice);
-        htkTime_stop(Copy, "Copying input memory to the GPU.");
+        // htkTime_stop(Copy, "Copying input memory to the GPU.");
 
-        htkTime_start(GPU, "Computing New Frame\n");
+        // htkTime_start(GPU, "Computing New Frame\n");
         // Copy memory to the GPU
 
-        #define DIMENSIONS 16
+        #define GREYSCALE_KERNEL_DIM 16
 
-        
+        auto comput_start = std::chrono::high_resolution_clock::now();
         if (filter_name == "greyscale") {
-            dim3 dimGrid(ceil(width/(float)DIMENSIONS), ceil(height/3/(float)DIMENSIONS), 1);
-            dim3 dimBlock(DIMENSIONS, DIMENSIONS, 1);
+            dim3 dimGrid(ceil(width/(float)GREYSCALE_KERNEL_DIM), ceil(height/3/(float)GREYSCALE_KERNEL_DIM), 1);
+            dim3 dimBlock(GREYSCALE_KERNEL_DIM, GREYSCALE_KERNEL_DIM, 1);
             filterGreyscale<<<dimGrid, dimBlock>>>(height, width, devInputData, devOutputData);
         } else if (filter_name == "sobel") {
             generic3ChannelFilter(devOutputData, devInputData, sobelMask, width, height, EPSILON, 3, 1);
@@ -336,14 +311,25 @@ int main(int argc, char *argv[]) {
             printf("Error: Invalid filter name.");
             return -1;
         }
-        htkTime_stop(GPU, "Computing New Frame\n");
+        auto compute_end = std::chrono::high_resolution_clock::now();
+        int compute_duration = std::chrono::duration_cast<std::chrono::microseconds>(compute_end - comput_start).count();
+        // printf("compute_duration: %d us\n", compute_duration);
+
+        if (compute_duration > max_compute_time) {
+            max_compute_time = compute_duration;
+        }
+        if (compute_duration < min_compute_time) {
+            min_compute_time = compute_duration;
+        }
+        total_compute_time += compute_duration;
+        // htkTime_stop(GPU, "Computing New Frame\n");
         
         // Copy the GPU memory back to the CPU
         Npp8u* hostOutputData = new Npp8u[matElements];
         // htkTime_start(IO, "Copying memory back to the CPU.");
-        htkTime_start(Copy, "Copying image back to CPU.");
+        // htkTime_start(Copy, "Copying image back to CPU.");
         cudaMemcpy(hostOutputData, devOutputData, width * height * sizeof(Npp8u), cudaMemcpyDeviceToHost);
-        htkTime_stop(Copy, "Copying image back to CPU.");
+        // htkTime_stop(Copy, "Copying image back to CPU.");
 
         
         // htkTime_stop(IO, "Copying memory back to the CPU.");
@@ -358,12 +344,12 @@ int main(int argc, char *argv[]) {
         // Save the image
         // htkTime_stop(IO, "Processing Total Frame");
         // htkTime_start(IO, "Show and Load new frame\n");
-        imshow("Frame", reconstructedA);
+        // imshow("Frame", reconstructedA);
 
         auto end_time = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-        printf("duration: %d\n", int(duration.count()));
-        int duration_int = int(duration.count());
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+        // printf("Frame duration: %d us\n", int(duration.count()));
+        int duration_int = int(duration.count()/1000);
         if(duration_int > period_ms - 1)
             duration_int = period_ms - 1;    
 
@@ -371,9 +357,18 @@ int main(int argc, char *argv[]) {
         if (c == 27)
             break;
 
-        printf("Processed frame %d\n", frame_num);
-        
-        
+        // printf("Processed frame %d\n", frame_num);
+        // printf("------------------------------------\n");
+
+        if (duration.count() > max_frame_time)
+        {
+            max_frame_time = duration.count();
+        }
+        if (duration.count() < min_frame_time)
+        {
+            min_frame_time = duration.count();
+        }
+        total_frame_time += duration.count();
 
         if (frame.empty())
         {
@@ -383,13 +378,23 @@ int main(int argc, char *argv[]) {
 
     }
 
+    printf("Max Frame Time: %d us\n", max_frame_time);
+    printf("Min Frame Time: %d us\n", min_frame_time);
+    printf("Average Frame Time: %f us\n", total_frame_time / (float)frame_num);
+    printf("Max Compute Time: %d us\n", max_compute_time);
+    printf("Min Compute Time: %d us\n", min_compute_time);
+    printf("Average Compute Time: %f us\n", total_compute_time / (float)frame_num);
+    printf("Max Flatten Time: %d us\n", max_flatten_time);
+    printf("Min Flatten Time: %d us\n", min_flatten_time);
+    printf("Average Flatten Time: %f us\n", total_flatten_time / (float)frame_num);
+
     // Free the GPU memory
     htkTime_start(GPU, "Freeing GPU memory.");
     cudaFree(devInputData);
     cudaFree(devOutputData);
     cudaFree(devMask);
     cudaFree(sobelMask);
-    cudaFree(sepiaMask);
+    cudaFree(greyscaleMask);
     cudaFree(blurMask);
     cudaFree(sharpenMask);
     cudaFree(embossMask);
@@ -399,11 +404,3 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
-
-
-
-
-
-
-
-

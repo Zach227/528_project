@@ -27,7 +27,7 @@ filter_name ?= blur
 .PHONY: run
 run: all
 	rm -f run_log.txt
-	./solution video_name filter_name\
+	./solution video_1.mp5 blur\
 	| tee -a run_log.txt; \
 
 run_video: all
