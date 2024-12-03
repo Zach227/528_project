@@ -237,32 +237,17 @@ int main(int argc, char *argv[]) {
 
         auto flatten_start = std::chrono::high_resolution_clock::now();
         // Flatten the frame into a 1D array
-        // int i = 0;
-        // for ( it = frame.begin<cv::Vec3b>(), end = frame.end<cv::Vec3b>(); it != end; ++it ) {
-
-        //     //get current bgr pixels:
-        //     uchar &r = (*it)[2];
-        //     uchar &g = (*it)[1];
-        //     uchar &b = (*it)[0];
-
-        //     //Store them into array, as a cv::Scalar:
-        //     oneDFrame[i] = b;
-        //     oneDFrame[i + 1] = g;
-        //     oneDFrame[i + 2] = r;
-        //     i +=3;
-
-        // }
-        int idx = 0;
+        
+        #pragma omp parallel for collapse(2)
         for (int i = 0; i < frame.rows; ++i) {
             for (int j = 0; j < frame.cols; ++j) {
+                int idx = (i * frame.cols + j) * 3; // Compute index based on row and column
                 Vec3b pixel = frame.at<Vec3b>(i, j);
                 oneDFrame[idx] = pixel[0];      // Blue
                 oneDFrame[idx + 1] = pixel[1];  // Green
                 oneDFrame[idx + 2] = pixel[2];  // Red
-                idx += 3;
             }
         }
-
         auto flatten_end = std::chrono::high_resolution_clock::now();
         int flatten_duration = std::chrono::duration_cast<std::chrono::microseconds>(flatten_end - flatten_start).count();
         if (flatten_duration > max_flatten_time) {
@@ -344,7 +329,7 @@ int main(int argc, char *argv[]) {
         // Save the image
         // htkTime_stop(IO, "Processing Total Frame");
         // htkTime_start(IO, "Show and Load new frame\n");
-        // imshow("Frame", reconstructedA);
+        imshow("Frame", reconstructedA);
 
         auto end_time = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);

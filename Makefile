@@ -15,8 +15,12 @@ LDFLAGS += -L$(CUDA_PATH)/lib64
 CPPFLAGS += -I$(CUDA_PATH)/include
 CPPFLAGS += -I/usr/local/include/opencv4
 LDLIBS += -lnppc -lnppidei -lnppif -lnppist -lnppisu -lnppitc -lopencv_core -lopencv_imgproc -lopencv_highgui -lopencv_imgcodecs -lopencv_videoio -lopencv_video
-
-
+# OPT += -fopenmp
+# LDFLAGS += -fopenmp
+NVCCFLAGS += -Xcompiler
+NVCCFLAGS += -fopenmp
+# NVCCFLAGS += -fgomp
+# CPPFLAGS += -Xcompiler=-fopenmp  # Add this line to pass the -fopenmp flag to the host code
 video_name ?= video_1.mp4
 
 filter_name ?= blur
