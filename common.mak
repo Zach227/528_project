@@ -118,6 +118,6 @@ vars:
 	@echo LDLIBS: $(LDLIBS)
 
 .PHONY: submit
-submit: run
+submit: run_video
 	@rm -f ../submit-$(notdir $(CURDIR)).zip
 	zip -quR ../submit-$(notdir $(CURDIR)).zip \* -x \*.o solution

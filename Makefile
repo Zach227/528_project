@@ -21,9 +21,9 @@ NVCCFLAGS += -Xcompiler
 NVCCFLAGS += -fopenmp
 # NVCCFLAGS += -fgomp
 # CPPFLAGS += -Xcompiler=-fopenmp  # Add this line to pass the -fopenmp flag to the host code
-video_name ?= video_1.mp4
+video_name ?= video_2.mp4
 
-filter_name ?= blur
+filter_name ?= sobel
 
 
 # Include "data" as an order-only prerequisite to generate data
@@ -31,7 +31,7 @@ filter_name ?= blur
 .PHONY: run
 run: all
 	rm -f run_log.txt
-	./solution video_1.mp5 blur\
+	./solution video_2.mp4 sobel\
 	| tee -a run_log.txt; \
 
 run_video: all
