@@ -216,6 +216,8 @@ int main(int argc, char *argv[]) {
     cudaMemcpy(blurMask, blurFilter, 3 * 3* sizeof(Npp32s), cudaMemcpyHostToDevice);
     cudaMemcpy(superblurMask, superblurFilter, 9 * 9 * sizeof(Npp32s), cudaMemcpyHostToDevice);
 
+    Npp8u *hostOutputData = new Npp8u[matElements];
+
     int max_frame_time = 0;
     int min_frame_time = 1000000;
     int total_frame_time = 0;
@@ -258,16 +260,10 @@ int main(int argc, char *argv[]) {
         }
         total_flatten_time += flatten_duration;
 
-        // printf("flatten_duration: %d us\n", flatten_duration);
-
-        // htkTime_stop(IO, "Flattening Frame\n");
-
-        // htkTime_start(Copy, "Copying input memory to the GPU.");
+        auto copy1_start = std::chrono::high_resolution_clock::now();
         cudaMemcpy(devInputData, oneDFrame, width * height * sizeof(Npp8u), cudaMemcpyHostToDevice);
-        // htkTime_stop(Copy, "Copying input memory to the GPU.");
-
-        // htkTime_start(GPU, "Computing New Frame\n");
-        // Copy memory to the GPU
+        auto copy1_end = std::chrono::high_resolution_clock::now();
+        int copy1_duration = std::chrono::duration_cast<std::chrono::microseconds>(copy1_end - copy1_start).count();
 
         #define GREYSCALE_KERNEL_DIM 16
 
@@ -298,7 +294,6 @@ int main(int argc, char *argv[]) {
         }
         auto compute_end = std::chrono::high_resolution_clock::now();
         int compute_duration = std::chrono::duration_cast<std::chrono::microseconds>(compute_end - comput_start).count();
-        // printf("compute_duration: %d us\n", compute_duration);
 
         if (compute_duration > max_compute_time) {
             max_compute_time = compute_duration;
@@ -307,33 +302,29 @@ int main(int argc, char *argv[]) {
             min_compute_time = compute_duration;
         }
         total_compute_time += compute_duration;
-        // htkTime_stop(GPU, "Computing New Frame\n");
         
         // Copy the GPU memory back to the CPU
-        Npp8u* hostOutputData = new Npp8u[matElements];
-        // htkTime_start(IO, "Copying memory back to the CPU.");
-        // htkTime_start(Copy, "Copying image back to CPU.");
+        auto copy2_start = std::chrono::high_resolution_clock::now();
         cudaMemcpy(hostOutputData, devOutputData, width * height * sizeof(Npp8u), cudaMemcpyDeviceToHost);
-        // htkTime_stop(Copy, "Copying image back to CPU.");
+        auto copy2_end = std::chrono::high_resolution_clock::now();
+        int copy2_duration = std::chrono::duration_cast<std::chrono::microseconds>(copy2_end - copy2_start).count();
 
         
-        // htkTime_stop(IO, "Copying memory back to the CPU.");
-
+        auto reconstruct_start = std::chrono::high_resolution_clock::now();
         Mat reconstructedA(frame.rows, frame.cols, CV_8UC3, hostOutputData);
+        auto reconstruct_end = std::chrono::high_resolution_clock::now();
+        int reconstruct_duration = std::chrono::duration_cast<std::chrono::microseconds>(reconstruct_end - reconstruct_start).count();
 
+        auto capture_start = std::chrono::high_resolution_clock::now();
         capture >> frame;
         frame_num++;
-        // htkTime_stop(IO, "Show and Load new frame\n");
+        auto capture_end = std::chrono::high_resolution_clock::now();
+        int capture_duration = std::chrono::duration_cast<std::chrono::microseconds>(capture_end - capture_start).count();
 
-
-        // Save the image
-        // htkTime_stop(IO, "Processing Total Frame");
-        // htkTime_start(IO, "Show and Load new frame\n");
         imshow("Frame", reconstructedA);
 
         auto end_time = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
-        // printf("Frame duration: %d us\n", int(duration.count()));
         int duration_int = int(duration.count()/1000);
         if(duration_int > period_ms - 1)
             duration_int = period_ms - 1;    
@@ -342,8 +333,6 @@ int main(int argc, char *argv[]) {
         if (c == 27)
             break;
 
-        // printf("Processed frame %d\n", frame_num);
-        // printf("------------------------------------\n");
 
         if (duration.count() > max_frame_time)
         {
@@ -357,12 +346,13 @@ int main(int argc, char *argv[]) {
 
         if (frame.empty())
         {
-            printf("Error: Unable to open the frame file.");
+            printf("Final Frame\n");
             break;
         }
 
     }
 
+    printf("----------------------- Stats -----------------------");
     printf("Max Frame Time: %d us\n", max_frame_time);
     printf("Min Frame Time: %d us\n", min_frame_time);
     printf("Average Frame Time: %f us\n", total_frame_time / (float)frame_num);
